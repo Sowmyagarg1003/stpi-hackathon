@@ -1,0 +1,20 @@
+{
+  "name": "qr2",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "assert": "^2.1.0",
+    "crypto": "^1.0.1",
+    "express": "^4.19.2",
+    "firebase": "^10.12.2",
+    "mongodb": "^6.6.2",
+    "monodb": "^1.5.1",
+    "qrcode": "^1.5.3"
+  }
+}
