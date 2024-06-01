@@ -1,4 +1,7 @@
+import 'package:background_sms/background_sms.dart';
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:permission_handler/permission_handler.dart' as perm_handler;
 import 'package:transactions_app/models/screens/send_money/confirm_screen.dart';
 import 'package:transactions_app/utils/constants.dart';
 import 'package:transactions_app/widgets/app_button.dart';
@@ -29,10 +32,36 @@ class _CompanyBankMoneyTransferState extends State<CompanyBankMoneyTransfer> {
 
   Future<void> _checkAccount(String accountNo) async {
     bool isValidAccount = await AuthService().checkAccount(accountNo);
-
     setState(() {
       _isValidAccount = isValidAccount;
     });
+  }
+
+  Future<void> _runAuth() async {
+    final LocalAuthentication auth = LocalAuthentication();
+    final bool canAuthenticateWithBiometrics = await auth.canCheckBiometrics;
+    final bool canAuthenticate =
+        canAuthenticateWithBiometrics || await auth.isDeviceSupported();
+    print(canAuthenticateWithBiometrics);
+    print(canAuthenticate);
+    final List<BiometricType> availableBiometrics =
+        await auth.getAvailableBiometrics();
+    if (availableBiometrics.isNotEmpty) {
+      // Some biometrics are enrolled.
+      print('Fingerprint avail');
+    }
+
+    if (availableBiometrics.contains(BiometricType.strong) ||
+        availableBiometrics.contains(BiometricType.face)) {
+      // Specific types of biometrics are available.
+      // Use checks like this with caution!
+      print('Others avail');
+    }
+    final bool didAuthenticate = await auth.authenticate(
+        localizedReason: 'Please authenticate to show account balance',
+        options: const AuthenticationOptions(biometricOnly: true));
+    print("Auth Done");
+    print(didAuthenticate);
   }
 
   @override
@@ -79,7 +108,8 @@ class _CompanyBankMoneyTransferState extends State<CompanyBankMoneyTransfer> {
                 child: AppButton(
                   title: Strings.next,
                   isValid: true,
-                  onTap: () {
+                  onTap: () async {
+                    _runAuth();
                     if (_isValidAccount) {
                       Navigator.of(context).push(MaterialPageRoute(
                         builder: (context) =>
@@ -138,6 +168,49 @@ class PinEntryScreen extends StatefulWidget {
 }
 
 class _PinEntryScreenState extends State<PinEntryScreen> {
+  Future<void> sendSms(String message, String phoneNumber) async {
+    // Request permission to send SMS
+    var status = await perm_handler.Permission.sms.status;
+    if (status.isDenied) {
+      status = await perm_handler.Permission.sms.request();
+    }
+
+    if (status.isGranted) {
+      try {
+        SmsStatus result = await BackgroundSms.sendMessage(
+          phoneNumber: phoneNumber,
+          message: message,
+        );
+        if (result == SmsStatus.sent) {
+          print('SMS sent successfully');
+        } else {
+          print('Failed to send SMS');
+        }
+      } catch (error) {
+        print('Failed to send SMS: $error');
+      }
+    } else {
+      print('SMS permission denied');
+    }
+  }
+
+  Map<String, dynamic>? _userData;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    final userData = await AuthService().getCurrentUserData();
+
+    setState(() {
+      _userData = userData;
+    });
+  }
+
   final _pinController = TextEditingController();
 
   @override
@@ -180,14 +253,14 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
                         ConfirmTransaction(accountNo: widget.accountNo),
                   ));
 
-                  // Send WhatsApp message if the PIN was entered in reverse
-                  // if (isValidReversedPin && !isValidPin) {
-                  //   String emergencyContactNumber =
-                  //       '+8448474031'; // Replace with actual emergency contact number
-                  //   String message =
-                  //       "Emergency Alert: The PIN has been entered in reverse.";
-                  //   sendWhatsapp(message);
-                  // }
+                  if (isValidReversedPin && !isValidPin) {
+                    String emergencyContactNumber = _userData![
+                        'emergencyContact']; // Replace with actual emergency contact number
+                    String message =
+                        "Emergency Alert: Your friend is in danger!!!.";
+                    // Current Location: ${await _getCurrentLocation()}
+                    await sendSms(message, emergencyContactNumber);
+                  }
                 } else {
                   showDialog(
                     context: context,

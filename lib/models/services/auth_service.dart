@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/src/intl/date_format.dart';
+import 'package:uuid/uuid.dart';
 
 class AuthService {
   final userCollection = FirebaseFirestore.instance.collection("users");
@@ -53,11 +54,26 @@ class AuthService {
           .limit(1)
           .get();
 
+      if (snapshot.docs.isNotEmpty) {
+        var userData = snapshot.docs.first.data() as Map<String, dynamic>;
+
+        if (userData.containsKey('activeSessionId')) {
+          // There is an existing active session
+          print("User already has an active session");
+          return;
+        }
+      }
+
       final UserCredential userCredential =
           await firebaseAuth.signInWithEmailAndPassword(
               email: _isEmail(email) ? email : snapshot.docs.first['email'],
               password: password);
       if (userCredential.user != null) {
+        String sessionId = Uuid().v4();
+        await userCollection
+            .doc(userCredential.user!.uid)
+            .set({'activeSessionId': sessionId}, SetOptions(merge: true));
+
         print(userCredential.user!.uid);
         final userDoc = await userCollection
             .doc(userCredential.user!.uid)
@@ -78,12 +94,25 @@ class AuthService {
     }
   }
 
+  Future<void> logout(BuildContext context) async {
+    User? user = firebaseAuth.currentUser;
+    if (user != null) {
+      // Clear active session ID on logout
+      await userCollection.doc(user.uid).update({
+        'activeSessionId': FieldValue.delete(),
+      });
+
+      await firebaseAuth.signOut();
+      Navigator.of(context).pushReplacementNamed('/login');
+      print("Logout successful, session ended");
+    }
+  }
+
   Future<Object?> getUserData(String uid) async {
     DocumentSnapshot snapshot =
         await FirebaseFirestore.instance.collection('users').doc(uid).get();
     return snapshot.data();
   }
-
   Future<void> registerUser(
       {required UserCredential user,
       required String id,

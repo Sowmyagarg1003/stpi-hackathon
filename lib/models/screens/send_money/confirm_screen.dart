@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:transactions_app/utils/constants.dart';
@@ -9,13 +12,131 @@ import '../../services/auth_service.dart';
 class ConfirmTransaction extends StatefulWidget {
   final String accountNo;
   final String? bankName;
-  const ConfirmTransaction({super.key, required this.accountNo, this.bankName});
+  const ConfirmTransaction({Key? key, required this.accountNo, this.bankName})
+      : super(key: key);
 
   @override
   State<ConfirmTransaction> createState() => _ConfirmTransactionState();
 }
 
+class QRDialog extends StatefulWidget {
+  final Uint8List qrCodeImage;
+  final VoidCallback onQRProcessed; // Add this callback
+
+  const QRDialog(
+      {Key? key, required this.qrCodeImage, required this.onQRProcessed})
+      : super(key: key);
+
+  @override
+  _QRDialogState createState() => _QRDialogState();
+}
+
+class _QRDialogState extends State<QRDialog>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  bool _isQRProcessed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: Duration(seconds: 2),
+    )..repeat(reverse: true); // Start the animation
+  }
+
+  @override
+  void dispose() {
+    _controller
+        .dispose(); // Dispose of the controller when the widget is disposed
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        // Background color overlay
+        Container(
+          color: Colors.black45, // Adjust transparency as needed
+        ),
+        // Dialog content
+        Center(
+          child: AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.memory(widget.qrCodeImage),
+                SizedBox(height: 20), // Space between image and button
+                ElevatedButton(
+                  onPressed: () {
+                    // Toggle the flag to indicate QR processing
+                    setState(() {
+                      _isQRProcessed = !_isQRProcessed;
+                    });
+                    print("Processing QR");
+
+                    widget.onQRProcessed(); // Call the callback
+                  },
+                  child: Text('Process QR'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        // Conditional hollow rectangle overlay
+        if (_isQRProcessed)
+          AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              return Positioned(
+                top: 5,
+                left: 5,
+                right: 5,
+                bottom: 5,
+                child: Opacity(
+                  opacity:
+                      0.5, // Set the opacity level (0.0 is fully transparent, 1.0 is fully opaque)
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border(
+                        top: BorderSide(
+                            color: Colors.white, width: 240), // Top width
+                        bottom: BorderSide(
+                            color: Colors.white, width: 240), // Bottom width
+                        left: BorderSide(
+                            color: Colors.white, width: 25), // Left width
+                        right: BorderSide(
+                            color: Colors.white, width: 25), // Right width
+                      ),
+                    ),
+                    child: AnimatedBuilder(
+                      animation: _controller,
+                      builder: (BuildContext context, Widget? child) {
+                        return LinearProgressIndicator(
+                          value: _controller.value,
+                          minHeight: 2, // Adjust the thickness of the line
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+}
+
+// The rest of your classes remain unchanged...
+
+// The rest of your classes remain unchanged...
+
+// The rest of your classes remain unchanged...
+
 class _ConfirmTransactionState extends State<ConfirmTransaction> {
+  bool _isQRProcessed = false;
   Map<String, dynamic>? _userData;
   Map<String, dynamic>? _currentUserData;
 
@@ -57,8 +178,11 @@ class _ConfirmTransactionState extends State<ConfirmTransaction> {
     });
   }
 
+  // Define a new StatefulWidget for the dialog content
+
+// Update the sendRequest function to use the new QRDialog StatefulWidget
   Future<void> sendRequest(String raccno, String saccno, String amount) async {
-    final uri = Uri.http('192.168.137.1:3000', '/ciper', {
+    final uri = Uri.http('192.168.1.14:3000', '/ciper', {
       'raccno': raccno,
       'saccno': saccno,
       'amount': amount,
@@ -68,11 +192,13 @@ class _ConfirmTransactionState extends State<ConfirmTransaction> {
       final response = await http.get(uri);
       if (response.statusCode == 200) {
         print('Request successful');
-        // Display the image
         showDialog(
           context: context,
-          builder: (_) => AlertDialog(
-            content: Image.memory(response.bodyBytes),
+          barrierDismissible:
+              false, // Prevent closing the dialog with a tap outside
+          builder: (_) => QRDialog(
+            qrCodeImage: response.bodyBytes,
+            onQRProcessed: _sendTransaction,
           ),
         );
       } else {
@@ -80,6 +206,24 @@ class _ConfirmTransactionState extends State<ConfirmTransaction> {
       }
     } catch (e) {
       print('Request failed with error: $e');
+    }
+  }
+
+  Future<void> _sendTransaction() async {
+    if (_currentUserData != null && _userData != null) {
+      await AuthService().updateBalance(
+        senderUserId: _currentUserData!['id'],
+        receiverUserId: _userData!['id'],
+        amount: amount,
+      );
+
+      if (isChecked) {
+        await AuthService().addToQuickTransfer(_userData!['id']);
+      }
+
+      await AuthService().updateHistory('out', _userData!['id'], amount);
+
+      Navigator.of(context).pushNamed('/success-send-money', arguments: amount);
     }
   }
 
